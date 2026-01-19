@@ -1,3 +1,6 @@
-pip install opencv-contrib-python
-python 3.11
-pip install psycopg2-binary
+opencv-contrib-python
+psycopg2-binary
+pillow
+python-dotenv
+numpy
+faker
