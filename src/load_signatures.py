@@ -2,8 +2,8 @@
 import os # For file handling
 import json # For JSON handling
 import psycopg2 # For PostgreSQL connection
-from src.db_utils import get_connection # Import DB connection utility
-from src.signature_utils import extract_features  # Import feature extraction function
+from db_utils import get_connection # Import DB connection utility
+from signature_utils import extract_features  # Import feature extraction function
 
 # Define constants
 SIGNATURE_DIR = "generated_signatures" # Directory containing signature images

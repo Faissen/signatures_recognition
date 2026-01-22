@@ -1,7 +1,7 @@
 import os
-from src.signature_utils import extract_features, compare_descriptors
+from signature_utils import extract_features, compare_descriptors
 
-def compare_all_signatures(query_signature_path, database_path="signatures_db"):
+def compare_all_signatures(query_signature_path, database_path="../generated_signatures"):
     """
     Compares a new signature against all signatures stored in a folder.
     Returns the top 3 most similar matches.
