@@ -1,9 +1,16 @@
 # Import the function to compare signatures
 from identify_signature import compare_all_signatures
 
-# Define the path to the signature to be checked
-result = compare_all_signatures("../signatures_to_test/signature_to_check.png") 
+# Define the path to the signature to be checked, can receive a list of paths
+test_images = [
+    "../signatures_to_test/signature_to_check.png",
+    "../signatures_to_test/test_david_bradford.png"
+]
 
+# Loop through test images list
+for img in test_images:
 # Print the top 3 matches, name, match = %
-for name, score in result["top_3_matches"]:
-    print(f"{name}: match = {round(score,1)}%")
+    result = compare_all_signatures(img)
+    print(f"\nResultados para: {img}")
+    for name, score in result["top_3_matches"]:
+        print(f"{name}: match = {round(score,1)}%")
