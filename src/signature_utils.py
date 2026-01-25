@@ -3,10 +3,8 @@ import numpy as np
 import os
 import json
 
-
-# ---------------------------------------------------------
 # 1. NORMALIZE SIGNATURE
-# ---------------------------------------------------------
+
 def normalize_signature(image_path):
     """
     Loads and normalizes a signature:
@@ -40,8 +38,6 @@ def normalize_signature(image_path):
 
     return resized
 
-
-# ---------------------------------------------------------
 # 2. SEGMENT LETTERS
 # ---------------------------------------------------------
 def segment_letters(img):
@@ -70,8 +66,6 @@ def segment_letters(img):
 
     return [l for _, l in letters]
 
-
-# ---------------------------------------------------------
 # 3. COMPARE LETTERS
 # ---------------------------------------------------------
 def compare_letters(letters1, letters2):
@@ -96,7 +90,6 @@ def compare_letters(letters1, letters2):
     return round(sum(scores) / len(scores) * 100, 2)
 
 
-# ---------------------------------------------------------
 # 4. MAIN COMPARISON FUNCTION
 # ---------------------------------------------------------
 def compare_signatures_letters(img1, img2):
@@ -109,8 +102,6 @@ def compare_signatures_letters(img1, img2):
 
     return compare_letters(letters1, letters2)
 
-
-# ---------------------------------------------------------
 # 5. EXTRACT FEATURES (wrapper)
 # ---------------------------------------------------------
 def extract_features(image_path):
@@ -123,7 +114,6 @@ def extract_features(image_path):
     return img, quality_good
 
 
-# ---------------------------------------------------------
 # 6. COMPARE AGAINST DATABASE
 # ---------------------------------------------------------
 def compare_all_signatures(query_signature_path, database_path="../generated_signatures"):
