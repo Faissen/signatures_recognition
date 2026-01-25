@@ -1,55 +1,163 @@
 import cv2
 import numpy as np
+import os
+import json
 
-def extract_features(image_path):
+
+# ---------------------------------------------------------
+# 1. NORMALIZE SIGNATURE
+# ---------------------------------------------------------
+def normalize_signature(image_path):
     """
-    Loads an image and extracts ORB keypoints and descriptors.
-    If descriptors are empty due to poor image quality, raises a clear error.
-    Returns (keypoints, descriptors).
+    Loads and normalizes a signature:
+    - grayscale
+    - binarize
+    - crop to content
+    - resize to fixed size
     """
-    # Load image in grayscale
-    image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
-   # Check if image was loaded successfully
-    if image is None:
+
+    img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    if img is None:
         raise FileNotFoundError(f"Could not load image: {image_path}")
-    # Create ORB detector, ORB stands for Oriented FAST and Rotated BRIEF
-    orb = cv2.ORB_create()
-    # None means no mask is used
-    keypoints, descriptors = orb.detectAndCompute(image, None)
 
-    # If ORB fails to find descriptors, return an empty array instead of None
-    if descriptors is None:
-        descriptors = np.zeros((0, 32), dtype=np.uint8)
-    #keypoints are the points of interest, descriptors are the feature vectors
-    # Quality check 
-    quality_good = len(descriptors) > 20
-    
-    return keypoints, descriptors, quality_good
+    # Binarize
+    _, th = cv2.threshold(
+        img, 0, 255,
+        cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
+    )
+
+    # Find contours
+    contours, _ = cv2.findContours(th, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if len(contours) == 0:
+        return cv2.resize(img, (400, 120))
+
+    # Bounding box around all contours
+    x, y, w, h = cv2.boundingRect(np.vstack(contours))
+    cropped = img[y:y+h, x:x+w]
+
+    # Resize to fixed size
+    resized = cv2.resize(cropped, (400, 120), interpolation=cv2.INTER_AREA)
+
+    return resized
 
 
-def compare_descriptors(desc1, desc2):
+# ---------------------------------------------------------
+# 2. SEGMENT LETTERS
+# ---------------------------------------------------------
+def segment_letters(img):
     """
-    Compares two ORB descriptor sets using BFMatcher.
-    Returns a similarity score between 0 and 1.
+    Splits a normalized signature into individual letters.
+    Returns a list of letter images ordered left-to-right.
     """
 
-    # If either descriptor set is empty, similarity is zero, avoid errors
-    if desc1 is None or desc2 is None or len(desc1) == 0 or len(desc2) == 0:
-        return 0.0
+    _, th = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
 
-    bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+    contours, _ = cv2.findContours(th, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-    matches = bf.match(desc1, desc2)
+    letters = []
+    for c in contours:
+        x, y, w, h = cv2.boundingRect(c)
 
-    if len(matches) == 0:
-        return 0.0
+        # Filter out noise
+        if w < 5 or h < 20:
+            continue
 
-    # Sort matches by distance (lower = better)
-    matches = sorted(matches, key=lambda x: x.distance)
+        letter = img[y:y+h, x:x+w]
+        letters.append((x, letter))
 
-    # Good matches threshold (empirical)
-    good_matches = [m for m in matches if m.distance < 50]
+    # Sort by x position (left to right)
+    letters.sort(key=lambda x: x[0])
 
-    # Similarity = ratio of good matches to total matches, converted to percentage
-    return (len(good_matches) / len(matches)) * 100
+    return [l for _, l in letters]
+
+
+# ---------------------------------------------------------
+# 3. COMPARE LETTERS
+# ---------------------------------------------------------
+def compare_letters(letters1, letters2):
+    """
+    Compares two lists of letters using template matching.
+    Returns similarity 0–100.
+    """
+
+    if len(letters1) == 0 or len(letters2) == 0:
+        return 0
+
+    n = min(len(letters1), len(letters2))
+    scores = []
+
+    for i in range(n):
+        l1 = cv2.resize(letters1[i], (40, 60))
+        l2 = cv2.resize(letters2[i], (40, 60))
+
+        res = cv2.matchTemplate(l1, l2, cv2.TM_CCOEFF_NORMED)
+        scores.append(res.max())
+
+    return round(sum(scores) / len(scores) * 100, 2)
+
+
+# ---------------------------------------------------------
+# 4. MAIN COMPARISON FUNCTION
+# ---------------------------------------------------------
+def compare_signatures_letters(img1, img2):
+    """
+    Full signature comparison based on letter shapes.
+    """
+
+    letters1 = segment_letters(img1)
+    letters2 = segment_letters(img2)
+
+    return compare_letters(letters1, letters2)
+
+
+# ---------------------------------------------------------
+# 5. EXTRACT FEATURES (wrapper)
+# ---------------------------------------------------------
+def extract_features(image_path):
+    img = normalize_signature(image_path)
+
+    # Quality check: enough ink pixels
+    non_white = cv2.countNonZero(255 - img)
+    quality_good = non_white > 300
+
+    return img, quality_good
+
+
+# ---------------------------------------------------------
+# 6. COMPARE AGAINST DATABASE
+# ---------------------------------------------------------
+def compare_all_signatures(query_signature_path, database_path="../generated_signatures"):
+    """
+    Compares a new signature against all stored signatures using letter-based matching.
+    Returns the top 3 most similar matches.
+    """
+
+    query_img, quality = extract_features(query_signature_path)
+    if not quality:
+        return {"status": "error", "message": "Signature quality too low."}
+
+    results = []
+
+    for filename in os.listdir(database_path):
+        if not filename.lower().endswith((".png", ".jpg", ".jpeg")):
+            continue
+
+        file_path = os.path.join(database_path, filename)
+        db_img, db_quality = extract_features(file_path)
+
+        similarity = compare_signatures_letters(query_img, db_img)
+        results.append((filename, similarity))
+
+    # Sort by similarity
+    results.sort(key=lambda x: x[1], reverse=True)
+    top_3 = results[:3]
+
+    # Load name mapping
+    mapping_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "signature_names.json"))
+    with open(mapping_path, "r", encoding="utf-8") as f:
+        name_map = json.load(f)
+
+    top_3_named = [(name_map.get(f, "Unknown"), score) for f, score in top_3]
+
+    return {"top_3_matches": top_3_named}
 

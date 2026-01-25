@@ -32,20 +32,20 @@ for filename in os.listdir(DATABASE_PATH):
     _, db_desc, db_quality = extract_features(file_path)
 
     # Compare descriptors and compute similarity
-    similarity = compare_descriptors(query_desc, db_desc)
+    similarity = compare_signatures_ssim(query_img, db_img)
     # Append result as (filename, similarity) tuple
     results.append((filename, similarity))
 
-# Sort results by similarity (highest first)
-# lambda x: x[1] accesses the similarity score in the tuple
-# reverse=True sorts in descending order
-results.sort(key=lambda x: x[1], reverse=True)
+    # Sort results by similarity (highest first)
+    # lambda x: x[1] accesses the similarity score in the tuple
+    # reverse=True sorts in descending order
+    results.sort(key=lambda x: x[1], reverse=True)
 
-# Print results
-print("Similarity results:")
-for name, score in results:
-    print(f"{name}: {score:.3f}")
+    # Print results
+    print("Similarity results:")
+    for name, score in results:
+        print(f"{name}: {score:.3f}")
 
-# Best match
-best_match = results[0] # First item after sorting
-print("\nBest match:", best_match)
+    # Best match
+    best_match = results[0] # First item after sorting
+    print("\nBest match:", best_match)
