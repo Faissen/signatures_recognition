@@ -3,40 +3,59 @@ import numpy as np
 import os
 import json
 
-# 1. NORMALIZE SIGNATURE
+from skimage.metrics import structural_similarity as ssim
 
+# 1. NORMALIZE SIGNATURE
 def normalize_signature(image_path):
     """
     Loads and normalizes a signature:
     - grayscale
     - binarize
+    - morphology closing (fix broken strokes)
     - crop to content
-    - resize to fixed size
+    - center on a fixed canvas
+    - resize to consistent size
     """
 
     img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
     if img is None:
         raise FileNotFoundError(f"Could not load image: {image_path}")
 
-    # Binarize
+    # 1. Binarize (invert so ink = white)
     _, th = cv2.threshold(
         img, 0, 255,
         cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
     )
 
-    # Find contours
+    # 2. Morphology closing to connect broken strokes
+    kernel = np.ones((5, 15), np.uint8)
+    th = cv2.morphologyEx(th, cv2.MORPH_CLOSE, kernel)
+
+    # 3. Find contours
     contours, _ = cv2.findContours(th, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if len(contours) == 0:
-        return cv2.resize(img, (400, 120))
+        # fallback: resize original
+        resized = cv2.resize(img, (600, 180), interpolation=cv2.INTER_AREA)
+        return resized
 
-    # Bounding box around all contours
+    # 4. Bounding box around all contours
     x, y, w, h = cv2.boundingRect(np.vstack(contours))
     cropped = img[y:y+h, x:x+w]
 
-    # Resize to fixed size
-    resized = cv2.resize(cropped, (400, 120), interpolation=cv2.INTER_AREA)
+    # 5. Resize cropped signature (preserving aspect ratio)
+    target_w, target_h = 600, 180
+    scale = min(target_w / w, target_h / h)
+    new_w, new_h = int(w * scale), int(h * scale)
+    resized = cv2.resize(cropped, (new_w, new_h), interpolation=cv2.INTER_AREA)
 
-    return resized
+    # 6. Center the resized signature on a fixed canvas
+    canvas = np.ones((target_h, target_w), dtype=np.uint8) * 255
+    y_offset = (target_h - new_h) // 2
+    x_offset = (target_w - new_w) // 2
+    canvas[y_offset:y_offset+new_h, x_offset:x_offset+new_w] = resized
+
+    return canvas
+
 
 # 2. SEGMENT LETTERS
 # ---------------------------------------------------------
@@ -113,18 +132,45 @@ def extract_features(image_path):
 
     return img, quality_good
 
+def compare_ssim(img1, img2):
+    img1 = cv2.resize(img1, (400, 120))
+    img2 = cv2.resize(img2, (400, 120))
+    score, _ = ssim(img1, img2, full=True)
+    return score * 100
 
-# 6. COMPARE AGAINST DATABASE
-# ---------------------------------------------------------
+def compare_ssim_full(img1, img2):
+    img1 = cv2.resize(img1, (600, 180))
+    img2 = cv2.resize(img2, (600, 180))
+    score, _ = ssim(img1, img2, full=True)
+    return score * 100
+
+def compare_template_full(img1, img2):
+    img1 = cv2.resize(img1, (600, 180))
+    img2 = cv2.resize(img2, (600, 180))
+
+    res = cv2.matchTemplate(img1, img2, cv2.TM_CCOEFF_NORMED)
+    return float(res.max() * 100)
+
+def is_cursive(img):
+    _, th = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    contours, _ = cv2.findContours(th, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # Assinaturas cursivas tendem a ter 1–3 contornos grandes
+    return len(contours) <= 3
+
+# 6. COMPARE ALL SIGNATURES IN DB
 def compare_all_signatures(query_signature_path, database_path="../generated_signatures"):
     """
-    Compares a new signature against all stored signatures using letter-based matching.
-    Returns the top 3 most similar matches.
+    Hybrid signature comparison:
+    - If signature is cursive → use global SSIM + global template matching
+    - If signature is non-cursive → use letters + SSIM
     """
 
     query_img, quality = extract_features(query_signature_path)
     if not quality:
         return {"status": "error", "message": "Signature quality too low."}
+
+    query_is_cursive = is_cursive(query_img)
 
     results = []
 
@@ -135,7 +181,16 @@ def compare_all_signatures(query_signature_path, database_path="../generated_sig
         file_path = os.path.join(database_path, filename)
         db_img, db_quality = extract_features(file_path)
 
-        similarity = compare_signatures_letters(query_img, db_img)
+        db_is_cursive = is_cursive(db_img)
+
+        # --- Cursive signatures: global comparison ---
+        if query_is_cursive or db_is_cursive:
+            similarity = compare_template_full(query_img, db_img)
+
+        # --- Non-cursive: letter-based + SSIM ---
+        else:
+            similarity = compare_signatures_letters(query_img, db_img)
+
         results.append((filename, similarity))
 
     # Sort by similarity
