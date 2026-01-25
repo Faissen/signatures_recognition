@@ -1,5 +1,5 @@
 # Import the function to compare signatures
-from identify_signature import compare_all_signatures
+from signature_utils import compare_all_signatures
 
 # Check if the script is run directly 
 if __name__ == "__main__":

@@ -1,1 +1,0 @@
-from signature_utils import compare_all_signatures
